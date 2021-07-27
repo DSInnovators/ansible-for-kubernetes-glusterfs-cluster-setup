@@ -1,0 +1,187 @@
+-
+    name: Setting up all nodes
+    hosts: all_nodes
+    become: yes
+    become_method: sudo
+    tasks:
+    - 
+        name: Copy the load-br_netfilter script on server location
+        copy: src=setup-scripts/load-br_netfilter-module.sh dest=/tmp/load-br_netfilter-module.sh mode=0777
+    
+    - 
+        name: Load br_netfilter module if not already loaded
+        command: sh /tmp/load-br_netfilter-module.sh
+    
+    - 
+        name: Remove swapfile from /etc/fstab
+        mount:
+          name: "{{ item }}"
+          fstype: swap
+          state: absent
+        with_items:
+          - swap
+          - none
+
+    - 
+        name: Disable swap
+        command: swapoff -a
+        when: ansible_swaptotal_mb > 0    
+
+    - 
+        name: Copy the docker installer script on server location
+        copy: src=setup-scripts/install-docker.sh dest=/tmp/install-docker.sh mode=0777
+
+    - 
+        name: Install container runtime engine (docker)
+        command: sh /tmp/install-docker.sh  
+
+    - 
+        name: Copy the kube-tool installer script on server location
+        copy: src=setup-scripts/install-kube-tools.sh dest=/tmp/install-kube-tools.sh mode=0777        
+
+    -   
+        name: Install kubeadm kubelet kubectl  
+        command: sh /tmp/install-kube-tools.sh  
+
+        
+-
+    name: Setting up master nodes
+    hosts: master_nodes
+    become: yes
+    become_method: sudo
+    tasks:
+    - 
+        name: Initiate K8s cluster
+        command: kubeadm init            
+
+    - 
+        name: Get the username running the deploy
+        become: false
+        command: whoami
+        register: username_on_the_host    
+
+    - 
+        name: Setup kubeconfig for regular user
+        command: "{{ item }}"
+        with_items:
+        - mkdir -p /home/{{ username_on_the_host.stdout }}/.kube
+        - cp -i /etc/kubernetes/admin.conf /home/{{ username_on_the_host.stdout }}/.kube/config
+        - chown {{ username_on_the_host.stdout }}:{{ username_on_the_host.stdout }} /home/{{ username_on_the_host.stdout }}/.kube/config        
+        
+    - 
+        name: Copy the CNI installer script on server location
+        become: false
+        copy: src=setup-scripts/install-cni-solution.sh dest=/tmp/install-cni-solution.sh mode=0777
+     
+    - 
+        name: Install CNI solution for the cluster
+        become: false
+        command: sh /tmp/install-cni-solution.sh
+
+    - 
+        name: Generate join token
+        shell: kubeadm token create --print-join-command
+        register: kubeadm_join_cmd        
+
+    - 
+        set_fact:
+            kubeadm_join: "{{ kubeadm_join_cmd.stdout }}"
+
+    -   debug: var=kubeadm_join
+
+    - 
+        name: Store join command on master node        
+        become: false
+        local_action: copy content="{{ kubeadm_join }}" dest="./join-command"      
+
+    -   
+        name: Install helm 
+        command: "{{ item }}"
+        with_items:
+        - apt update
+        - apt install snapd
+        - snap install helm --classic
+        
+
+    - 
+        name: Make necessary folders for MetalLB installer
+        become: false 
+        command: mkdir -p /tmp/load-balancer/templates    
+
+    -   
+        name: Copy MetalLB installer to master location
+        become: false
+        copy: 
+          src: "helm-charts/load-balancer/{{ item }}"
+          dest: "/tmp/load-balancer/{{ item }}"
+          mode: 0777        
+        with_items:
+        - 'Chart.yaml'
+        - 'values.yaml'
+        - '.helmignore'
+        - 'templates/metallb-ns.yaml'
+        - 'templates/metallb-deployment.yaml'
+        - 'templates/metallb-config.yaml'
+
+    -   
+        name: Install load balancer (MetalLB)  
+        become: false
+        command: "{{ item }}"
+        with_items:
+        - /snap/bin/helm install metallb-deployment /tmp/load-balancer
+        - kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"  
+
+
+    - 
+        name: Make necessary folders for Heketi installer
+        become: false 
+        command: mkdir -p /tmp/hekei-installer/setup-scripts
+   
+    -   
+        name: Copy Heketi installer to master location
+        become: false
+        copy: 
+          src: "{{ item }}"
+          dest: "/tmp/hekei-installer/{{ item }}"
+          mode: 0777        
+        with_items:
+        - 'heketi-configuration.json'
+        - 'setup-scripts/install-heketi.sh'
+     
+    - 
+        name: Install Heketi server
+        become_method: su
+        command: sh /tmp/hekei-installer/setup-scripts/install-heketi.sh '{{ glusterfs_nodes }}' {{ ansible_become_pass }}
+    
+    -  
+        name: Configure non-root user for Heketi-CLI
+        become: false
+        blockinfile:
+            path: ~/.bashrc
+            block: |
+                # HEKETI-CLI Settings
+                export HEKETI_CLI_SERVER=http://localhost:8383
+                export HEKETI_CLI_USER=admin
+                export HEKETI_CLI_KEY={{ ansible_become_pass }}      
+
+
+-
+    name: Setting up worker nodes
+    hosts: worker_nodes
+    become: yes
+    become_method: sudo
+    tasks:
+    - 
+        name: Copy the join command to node location
+        copy: src=./join-command dest=/tmp/join-command.sh mode=0777
+
+    -   
+        name: Join the node to cluster
+        command: sh /tmp/join-command.sh
+
+    -   
+        name: Install glusterfs server
+        command: "{{ item }}"
+        with_items:
+        - apt install -y glusterfs-server
+        - systemctl enable --now glusterd        
