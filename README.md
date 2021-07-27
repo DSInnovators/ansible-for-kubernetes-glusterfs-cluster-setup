@@ -1,14 +1,14 @@
-# IEIMS Server Setup
+# Server Setup
 
-IEIMS server contains two major component:
+Server will contain two major component:
 - Kubernetes (k8s) cluster
 - Glusterfs (network storage) cluster 
 
 This document covers the necessary steps to install above components into any number of servers from scratch.  
 
-### Pre-requisites of IEIMS server
+### Pre-requisites of server
 
-After getting the physical or virtual machines (at least two), we need to prepare the servers for installing IEIMS cluster by ensuring following steps:
+After getting the physical or virtual machines (at least two), we need to prepare the servers for installing cluster by ensuring following steps:
 
 Root password should be set on every machine. 
 
@@ -33,9 +33,9 @@ Ensure password less ssh login from master to all worker nodes (both for current
 Just for readibility purpose, you can always alter each of the node's `/etc/hosts` file in-order to add some reasonable naming against each local IP address.
 
 
-### Setting up IEIMS Server
+### Setting up Server
 
-Once you established the initial communication channel among the servers by following pre-requisite steps, you are ready to setup the IEIMS server. In-order to setup the IEIMS server, you need to install ansible on your local machine:
+Once you established the initial communication channel among the servers by following pre-requisite steps, you are ready to setup the server. In-order to setup the server, you need to install ansible on your local machine:
 
     sudo apt update
 
@@ -43,7 +43,7 @@ Once you established the initial communication channel among the servers by foll
 
 Now let's make some changes on the available ansible inventory file on `inventory/*.ini` with our server ip addresses.
 
-Once we are done with modifing ansible inventory, then ensure password less ssh login from current local machine to all IEIMS servers.
+Once we are done with modifing ansible inventory, then ensure password less ssh login from current local machine to all servers.
 
     ssh-keygen (if rsa key is already not generated on master)
 
